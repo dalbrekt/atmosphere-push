@@ -24,11 +24,11 @@
 
 <script type="text/javascript">
 	$(document).ready(function() {
-		console.log("body.onload");
 		var endpoint
 		var callbackAdded = false;
 		
 		function subscribe() {
+			$.atmosphere.closeSuspendedConnection();
             // jquery.atmosphere.response
             function callback(response) {
             	console.log(response);
@@ -48,14 +48,31 @@
                 }
             }
 
-            var location = document.location.toString() + 'pubsub/time';
+            var location = document.location.toString() + 'pubsub/subscribe/time';
             $.atmosphere.subscribe(location, !callbackAdded ? callback : null,
                     $.atmosphere.request = { transport: 'websocket' });
             endpoint = $.atmosphere.response;
             callbackAdded = true;
         }
 		
-        subscribe();
+		function unsubscribe() {
+			$.atmosphere.closeSuspendedConnection();
+			$.get(document.location.toString() + 'pubsub/unsubscribe/time', function(data) {
+				console.log(data);
+				$('ul').prepend($('<li></li>').text("Unsubscribed: " + data));
+			});
+		}
+		
+		$('#subscribe').click(function() {
+			  $('ul').prepend($('<li></li>').text("Subscribed"));
+			  subscribe();
+		});
+		
+		$('#unsubscribe').click(function() {
+			   unsubscribe();
+        });
+
+		
 	});
 </script>
 
@@ -63,5 +80,8 @@
 <body>
     <h1>Atmoshpere Push</h1>
     <div id="time"></div>
+    <input id="subscribe" type="button" value="Subscribe">
+    <input id="unsubscribe" type="button" value="Unsubscribe">
+    <ul></ul>
 </body>
 </html>

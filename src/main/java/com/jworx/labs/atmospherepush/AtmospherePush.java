@@ -18,13 +18,16 @@ package com.jworx.labs.atmospherepush;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.WebApplicationException;
 
 import org.atmosphere.cpr.Broadcaster;
 import org.atmosphere.jersey.SuspendResponse;
@@ -32,48 +35,52 @@ import org.atmosphere.jersey.SuspendResponse;
 import com.jworx.logfacade.Log;
 import com.jworx.logfacade.LogFactory;
 
-@Path("/pubsub/{topic}")
+@Path("/pubsub")
 @Produces("text/html;charset=ISO-8859-1")
 public class AtmospherePush {
-    private Log log = LogFactory.getLog(AtmospherePush.class);
-
-    private @PathParam("topic")
-    Broadcaster topic;
-    private static Timer timer;
-
-    public AtmospherePush() throws IllegalAccessException, InstantiationException {
-        if (timer == null) {
-            timer = new Timer("atmoshpere-timer");
-            timer.schedule(new TimerTask() {
-
-                @Override
-                public void run() {
-                    try {
-                        publish();
-                    } catch (IllegalAccessException e) {
-                        e.printStackTrace();
-                    } catch (InstantiationException e) {
-                        e.printStackTrace();
-                    }
-
-                }
-            }, 1000, 1000);
-        }
-
-    }
+    private final Log log = LogFactory.getLog(AtmospherePush.class);
+    private static final ConcurrentHashMap<String, Future<?>> futures = new ConcurrentHashMap<String, Future<?>>();
+    private static SimpleDateFormat FORMATTER = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     @GET
-    public SuspendResponse<String> subscribe() {
-        return new SuspendResponse.SuspendResponseBuilder<String>().broadcaster(topic).outputComments(true)
+    @Path("/subscribe/{topic}")
+    public SuspendResponse<String> subscribe(final @PathParam("topic") Broadcaster feed,
+            final @PathParam("topic") String topic) {
+
+        if (topic.isEmpty()) {
+            throw new WebApplicationException();
+        }
+
+        if (feed.getAtmosphereResources().size() == 0) {
+
+            final Future<?> future = feed.scheduleFixedBroadcast(new Callable<String>() {
+
+                @Override
+                public String call() throws Exception {
+                    return newDate();
+                }
+            }, 1, TimeUnit.SECONDS);
+
+            futures.put(topic, future);
+        }
+
+        return new SuspendResponse.SuspendResponseBuilder<String>().broadcaster(feed).outputComments(true)
                 .addListener(new EventLogger()).build();
     }
 
-    public void publish() throws IllegalAccessException, InstantiationException {
-        if (topic != null) {
-            Date now = new Date();
-            log.debug("publish: %s", now);
-            SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            topic.broadcast(formatter.format(now));
-        }
+    public String newDate() {
+        String now = FORMATTER.format(new Date());
+        log.debug("publish: %s", now);
+        return now;
+    }
+    
+    @GET
+    @Path("/unsubscribe/{topic}")
+    public String unsubscribe(final @PathParam("topic") Broadcaster feed,
+                             final @PathParam("topic") String topic) {
+        feed.resumeAll();
+        futures.get(topic).cancel(true);
+        log.info("Unsubscribes from %s", topic);
+        return "DONE";
     }
 }
